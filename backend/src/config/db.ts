@@ -1,4 +1,16 @@
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import pg from 'pg';
+
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load the root .env file here too so dbPool can see the string
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') }); // 1st .. indicates go outside src 2nd indicates go outside src 3rd indicates go outside backend and then u will gate env
+
+
 const {Pool} = pg;
 
 const connectionString = process.env.DATABASE_URL;
@@ -9,13 +21,13 @@ if(!connectionString){
 }
 
 export const dbPool = new Pool({
-    connectionString: "postgresql://neondb_owner:npg_LdbUhYq68SVZ@ep-long-wind-addqcltl.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    connectionString: process.env.DATABASE_URL,
     ssl:{
         rejectUnauthorized:true, //Mandated by cloud providers like Neon for encrypted data transfer
     },
     max:10,
     idleTimeoutMillis:30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 10000,
 })
 /*  this is for when we use locally started databse 
 manage reusable db connections effectively
