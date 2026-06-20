@@ -7,6 +7,50 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({path : path.resolve(__dirname,'../../.env')});
 
+import  express from 'express';
+import cors from 'cors';
+import balanceRoutes from './routes/balance.js';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.use(cors()); //handles middleware
+app.use(express.json()); //parses incoming JSON payload
+
+//Mounting application routes
+app.use('/api/balances',balanceRoutes);
+
+//Health check route
+app.get('/health',(req,res)  => {
+    res.status(200).json({
+        status: "healthy",timestamp:new Date()
+    });
+})
+
+/* 🔍 TEMPORARY  DEBUG ROUTE
+app.get('/debug/users', async (req, res) => {
+    try {
+        const { dbPool } = await import('./config/db.js');
+        const client = await dbPool.connect();
+        
+        const queryText = `
+        SELECT id,username
+        FROM users;
+        `; 
+
+        const result = await client.query(queryText);
+        client.release();
+        
+        res.status(200).json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: "Debug route failed", details: error });
+    }
+});
+*/
+app.listen(PORT, ()=> {
+    console.log("NexisCEX Engine Core listening live on the PORT");
+})
+
+/*  This was used when we dont have the balance.ts file with the definition of route so at that time we were using core logic to fetch the data now we have defind the route object and defined route in here also so we are removing this  
 import {dbPool} from './config/db.js';
 import { title } from 'process';
 
@@ -52,3 +96,4 @@ async function verifyInfra(){
 
 verifyInfra();
 
+*/
