@@ -10,6 +10,7 @@ dotenv.config({path : path.resolve(__dirname,'../../.env')});
 import  express from 'express';
 import cors from 'cors';
 import balanceRoutes from './routes/balance.js';
+import orderRoutes from './routes/order.js'
 import { dbPool } from './config/db.js';
 import { engine } from './engine/orderbook.js';
 
@@ -21,6 +22,7 @@ app.use(express.json()); //parses incoming JSON payload
 
 //Mounting application routes
 app.use('/api/balances',balanceRoutes);
+app.use('/api/orders',orderRoutes);
 
 //Health check route
 app.get('/health',(req,res)  => {
@@ -67,7 +69,7 @@ async function syncEngineCache() {
 }
 
 app.get('/debug/engine', (req, res) => {
-    // This directly exposes the live, high-speed RAM objects we just built!
+    // This directly exposes the objects we just built using the OrderBook Engine!
     res.status(200).json({
         bids: engine.bids,
         asks: engine.asks,

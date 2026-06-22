@@ -2,9 +2,10 @@ export interface Order {
     id: string;
     userId: string;
     price: number;
-    quantity: number;
+    qty: number;
     filled: number;
     side: 'BUY' | 'SELL';
+    type: 'LIMIT'| 'MARKET';
 }
 
 export interface AssetBalances{

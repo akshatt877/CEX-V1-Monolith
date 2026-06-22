@@ -19,7 +19,6 @@ router.get('/:userId', async(req: Request, res:Response):Promise<void> => {
           const values = [userId];
 
           const result = await client.query(queryText,values);
-          client.release();
 
           if(result.rows.length==0){
             res.status(404).json({
