@@ -16,9 +16,48 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
         return;
     }
 
+    const totalCost = parseFloat(price)*parseFloat(qty)
     const client = await dbPool.connect();
+    try {
+        //ACID property acting as a draft notebook -> if anything fail inside begin to commit then rollbacck occurs otherwise anything will be only performed after commit is performeed basically storing in buffer and then place into db 
+        await client.query('BEGIN');
+     //Checking available balance & update/lock balance
 
-    try{
+        const balanceQuery = `
+        SELECT total_amount,locked_amount
+        FROM balances WHERE user_id= $1;
+        `;
+
+        const balanceResult = await client.query(balanceQuery,[userId]);
+
+        if(balanceResult.rows[0].length ===0){
+            res.status(400).json({
+                error: "NO balance record for this user."
+            });
+            await client.query('ROLLBACK'); //exit from transaction draft
+            return;
+        }
+
+        const {total_amount,locked_amount} = balanceResult.rows[0];
+        const availableBalance = parseFloat(total_amount)-parseFloat(locked_amount);
+
+        if(side === 'BUY' && availableBalance < totalCost){
+            res.status(400).json({
+                error:"Insufficient balance in user accounts"
+            });
+            await client.query('ROLLBACK'); //exit from transaction draft
+            return ;
+        }
+
+        const updateBalanceQuery = `
+        UPDATE BALANCES
+        SET locked_amount = locked_amount+ $1
+        WHERE user_id = $2;
+        `;
+
+        await client.query(updateBalanceQuery,[totalCost,userId]);
+      
+      //Now placing the order because we have updated the balance above 
         const stockQuery = `SELECT id FROM stocks WHERE symbol = $1;`;
         const stockResult = await client.query(stockQuery,[symbol]);
 
@@ -26,6 +65,7 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
             res.status(404).json({
                 error: "Asset Symbol not recognized on this platform data"
             });
+            await client.query('ROLLBACK'); //exit from transaction draft
             return;
         }
 
@@ -40,7 +80,9 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
         const orderDbResult = await client.query(insertOrderQuery,[userId,stockId,price,qty,side,type]);
         const systemOrderId = orderDbResult.rows[0].id.toString();
 
-        //inititalizing memeory spaces inside engine RAM
+        await client.query('COMMIT');
+
+        //inititalizing memeory spaces inside engine RAM-> Push order into our in-memory engine RAM books
         engine.initializeUserSpace(userId.toString(),symbol);
 
         //creating order object for engine
@@ -66,7 +108,8 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
             order: newOrder
         });
     }catch(error) {
-        console.error("Exception thrown during order submission processinging",error);
+        await client.query('ROLLBACK');
+        console.error("Transaction  failed! Changes rolled back safely",error);
         res.status(500).json({
             error: "Internal order gateway failed"
         });
