@@ -30,7 +30,7 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
 
         const balanceResult = await client.query(balanceQuery,[userId]);
 
-        if(balanceResult.rows[0].length ===0){
+        if(balanceResult.rows[0].length === 0){
             res.status(400).json({
                 error: "NO balance record for this user."
             });
@@ -101,6 +101,8 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
         }else {
             engine.asks.push(newOrder);
         }
+
+        engine.matchOrders();
 
         res.status(201).json({
             success: true,
