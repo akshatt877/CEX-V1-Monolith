@@ -19,6 +19,19 @@ export interface UserBalances {
     [userId:string] : AssetBalances;
 }
 
+export interface MatchResult {
+    buyerOrderId: string;
+    sellerOrderId: string;
+    buyerId: string;
+    sellerId: string;
+    price: number;
+    qty: number;
+    buyerFilledAll:boolean;
+    sellerFilledAll: boolean;
+    buyerTotalFilled: number;
+    sellerTotalFilled: number;
+}
+
 export class OrderbookEngine {
     //In memory store tracking active buyer and seller
     //initializes two empty arrays in memoryDb.
@@ -50,13 +63,14 @@ export class OrderbookEngine {
         }
     }
 
-    public matchOrders(): void {
+    public matchOrders(): MatchResult[] {
         console.log(`[DEBUG] Engine triggered. Bids count: ${this.bids.length}, Asks count: ${this.asks.length}`);
     if (this.bids[0] || this.asks[0]) {
         console.log(`[DEBUG] Top Bid Price: ${this.bids[0]?.price} (Type: ${typeof this.bids[0]?.price}), Top Ask Price: ${this.asks[0]?.price} (Type: ${typeof this.asks[0]?.price})`);
     }
     
         this.sortBooks();
+        const matches: MatchResult[]=[]; //collection array to return to the DB router 
 
         while(
             this.bids.length >0 &&
@@ -68,7 +82,7 @@ export class OrderbookEngine {
             const bestBid = this.bids[0];
             const bestAsk = this.asks[0]; 
             if(!bestBid || !bestAsk) {
-                return;
+                return matches;
             }
             const bidRemaining = bestBid.qty - bestBid.filled;
             const askRemaining = bestAsk.qty - bestAsk.filled;
@@ -81,6 +95,19 @@ export class OrderbookEngine {
             bestBid.filled += matchQuantity;
             bestAsk.filled += matchQuantity;
             
+            matches.push({
+                buyerOrderId: bestBid.id,
+                sellerOrderId: bestAsk.id,
+                buyerId: bestBid.userId,
+                sellerId: bestAsk.userId,
+                price: matchPrice,
+                qty: matchQuantity,
+                buyerFilledAll: bestBid.filled === bestBid.qty,
+                sellerFilledAll: bestAsk.filled === bestAsk.qty,
+                buyerTotalFilled : bestBid.filled,
+                sellerTotalFilled: bestAsk.filled
+            });
+
             if(bestBid.filled === bestBid.qty){
                 this.bids.shift(); //removes the first element ($1st place)
             }
@@ -88,6 +115,8 @@ export class OrderbookEngine {
                 this.asks.shift(); // removes first element 
             }
         }
+
+        return matches;
     }
 }
 

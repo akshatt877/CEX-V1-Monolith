@@ -30,7 +30,7 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
 
         const balanceResult = await client.query(balanceQuery,[userId]);
 
-        if(balanceResult.rows[0].length === 0){
+        if(balanceResult.rows.length === 0){
             res.status(400).json({
                 error: "NO balance record for this user."
             });
@@ -102,7 +102,51 @@ router.post('/', async(req:Request, res: Response): Promise<void> =>  {
             engine.asks.push(newOrder);
         }
 
-        engine.matchOrders();
+        const matches= engine.matchOrders();
+        
+        console.log(`Total match objects returned from RAM: ${matches.length}`);
+
+        for(const match of matches) {
+            console.log("[MATCHCONTENT]:", JSON.stringify(match));
+            const syncClient = await dbPool.connect();
+            try {
+                await syncClient.query('BEGIN');
+
+                const buyerUserId = parseInt(match.buyerId, 10);
+               const sellerUserId = parseInt(match.sellerId, 10);
+              const buyerOrderKey = parseInt(match.buyerOrderId, 10);
+             const sellerOrderKey = parseInt(match.sellerOrderId, 10);
+
+                await syncClient.query (
+                    `INSERT INTO  trades (buyer_id,seller_id,symbol,price,quantity,buyer_order_id,seller_order_id)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+                    [buyerUserId, sellerUserId, symbol, match.price, match.qty, buyerOrderKey, sellerOrderKey]
+                );
+
+                //update the Buyer's row
+                const buyerStatus = match.buyerFilledAll ? 'FILLED' :'PARTIALLYFILLED';
+
+                await syncClient.query(
+                    `UPDATE orders SET filled_qty = $1, status = $2 WHERE id = $3`,
+                    [match.buyerTotalFilled, buyerStatus, buyerOrderKey]
+                );
+
+                const sellerStatus = match.sellerFilledAll ? 'FILLED' :'PARTIALLYFILLED';
+
+                await syncClient.query(
+                    `UPDATE orders SET filled_qty = $1, status = $2 WHERE id = $3`,
+                    [match.sellerTotalFilled, sellerStatus, sellerOrderKey]
+                );
+
+                await syncClient.query('COMMIT');
+                console.log(`Order processing saved permanently for IDs: ${match.buyerOrderId} & ${match.sellerOrderId}`);
+            } catch(syncError) {
+                await syncClient.query('ROLLBACK');
+                console.error('Failed to lock down matching records',syncError);
+            } finally {
+                syncClient.release();
+            }
+        }
 
         res.status(201).json({
             success: true,
