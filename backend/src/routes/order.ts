@@ -3,6 +3,7 @@ import { dbPool } from "../config/db.js";
 import { engine, type Order } from "../engine/orderbook.js";
 import crypto from "crypto";
 import { parse } from "path";
+import type { promises } from "dns";
 
 const router = Router();
 
@@ -289,4 +290,153 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+router.get("/open", async (req:Request , res: Response): Promise<void> => {
+  const userId = req.query.userId as string;
+
+  if(!userId){
+    res.status(400).json({
+      error:"userId query parameter is missing"
+    });
+    return;
+  }
+
+  const client = await dbPool.connect();
+  try{
+    await client.query("BEGIN"); //to handle rollbacks 
+
+    const openordersQuery = `SELECT * FROM orders
+     WHERE user_id=$1 
+        AND status IN ('PENDING','PARTIALLY_FILLED')
+    ORDER BY id DESC;
+    `;
+
+    const openOrdersResult = await client.query(openordersQuery,[userId]);
+
+    res.status(200).json({
+      success: true,
+      orders: openOrdersResult.rows
+    });
+  }catch(error){
+    console.error("Error fetching open orders:",error);
+    res.status(500).json({
+      error: "Server error fetching open orders"
+    });
+  }finally {
+    client.release();
+  }
+});
+
+router.delete("/:id",async( req:Request , res:Response): Promise<void> => {
+  const {id: orderId} =  req.params; // shortcut of const orderId = req.params.id;
+  if (!orderId || typeof orderId !== "string") {
+    res.status(400).json({ error: "Invalid Order ID format" });
+    return;
+  }
+
+  const client = await dbPool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const orderQuery =
+     `SELECT id,user_id,side,type,price,qty,filled_qty,status
+      FROM orders
+      WHERE id = $1
+      FOR UPDATE;
+      `; //reads and locks data,  UPDATE ... SET modifies data.
+
+      /*
+      Before WE update any balance or order status during cancellation, we need to check if the order is actually cancellable,  FOR UPDATE prevents another request (like a trade match) from changing that row while your code is thinking. */
+    
+      const orderResult = await client.query(orderQuery,[orderId]);
+
+      if(orderResult.rows.length=== 0){
+        await client.query("ROLLBACK");
+        res.status(404).json({
+          error:"Order not found"
+        });
+        return;
+      }
+
+      const dbOrder = orderResult.rows[0];
+      if(dbOrder.status === 'FILLED' || dbOrder.status === 'CANCELLED'){
+        await client.query("ROLLBACK");
+        res.status(404).json({
+          error:"Order is already completed or cancelled"
+        });
+        return;
+      }
+
+      if(dbOrder.type === 'MARKET'){
+        await client.query("ROLLBACK");
+        res.status(404).json({
+          error:"Market order cannot be canncelled bcoz they get fullfilled once they come in ledger"
+        });
+        return;
+      }
+      
+      //Calculating refund & Unlocking balance
+      const remainingQty = parseFloat(dbOrder.qty) - parseFloat(dbOrder.filled_qty);
+      
+     //BUY orders lock the Quote Asset (Price * Qty). SELL orders lock the Base Asset (Qty).
+      const refundAmount = dbOrder.side === "BUY"
+      ? remainingQty*parseFloat(dbOrder.price)
+      : remainingQty;
+      
+
+      //Updating balances in DB
+      const unlockBalanceQuery = `
+      UPDATE balances
+      SET locked_amount = locked_amount - $1
+      WHERE user_id = $2 AND asset_id = $3;
+      `;
+
+      await client.query(unlockBalanceQuery, [refundAmount,dbOrder.user_id,dbOrder.asset_id]);
+
+     //Updating order status
+     const cancelOrderQuery = `
+     UPDATE orders
+     SET status = 'CANCELLED'
+     WHERE id = $1
+     ;`;
+     //"signifies table/column" & 'signifies string'
+
+     await client.query(cancelOrderQuery,[orderId]);
+
+     //removing from the in-memory engine -> we have to build the engine bcoz we are dealing with in-memory db not with the cloud db
+     engine.cancelOrder(orderId,dbOrder.side); //orderId can get the undefined that's why check is added after the  req.params
+
+     await client.query("COMMIT");
+
+     res.status(200).json({
+      success:true,
+      message:"Order cancelled successfully.",
+      refundedAmount : refundAmount
+     });
+  }catch (error){
+    await client.query("ROLLBACK");
+    console.error("Error cancelling order:", error);
+    res.status(500).json({ error: "Internal server error during cancellation" });
+  }finally {
+    client.release();
+  }
+});
+
+
 export default router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * Because bids and asks arrays are strictly sorted by price-time priority, replacing the array using .filter() can sometimes trigger memory garbage-collection spikes or break the exact sorting reference. Using .findIndex() combined with .splice(index, 1) surgically removes the exact node while leaving the rest of the array completely untouched and perfectly sorted!
+ * 
+ */

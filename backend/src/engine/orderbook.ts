@@ -180,6 +180,23 @@ export class OrderbookEngine {
     return matches;
 
   }
+
+  public cancelOrder(orderId: string, side:"BUY" | "SELL"): boolean {
+    const targetQueue = side === "BUY"? this.bids : this.asks;
+
+    const orderIndex = targetQueue.findIndex((order) => order.id === orderId);
+    
+    //If found, slice it out of the array
+    if(orderIndex !==-1){
+      targetQueue.splice(orderIndex,1);
+      console.log(`[ENGINE] Order ${orderId} cleanly removed from in-memory ${side} book.`);
+      return true;
+    }
+    
+    //if not found it means that order is already fullymatched by a market order & removed automatically
+    console.warn(`[ENGINE] Order ${orderId} not found in memory. It may have just executed.`);
+    return false;
+  }
 }
 
 //exporting a instance so my whole aplication shares the exact same memory space
