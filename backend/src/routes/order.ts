@@ -326,6 +326,45 @@ router.get("/open", async (req:Request , res: Response): Promise<void> => {
   }
 });
 
+//Fetch past order
+router.get('/history', async (req:Request , res:Response): Promise<void> => {
+   const userId = req.query.userId as string;
+
+   if(!userId){
+    res.status(400).json({
+      error:"userId query parameter is required"
+    });
+    return;
+   }
+
+   const client = await dbPool.connect();
+   try {
+       await client.query("BEGIN");
+
+       const historyQuery = `
+       SELECT *
+       FROM orders
+       WHERE user_id = $1
+         AND status IN ('FILLED' , 'CANCELLED' ,'PARTIALLY_FILLED')
+       ORDER BY id DESC
+       LIMIT 100;
+      `;
+
+      const historyResult = await client.query(historyQuery , [userId]);
+
+      res.status(200).json({
+        success: true,
+        orders: historyResult.rows
+      });
+   }catch(error) {
+    console.error("Error fetching order history:" , error);
+    res.status(500).json({
+      error:"Server error fetching history"
+    });
+   }finally {
+    client.release();
+   }
+})
 router.delete("/:id",async( req:Request , res:Response): Promise<void> => {
   const {id: orderId} =  req.params; // shortcut of const orderId = req.params.id;
   if (!orderId || typeof orderId !== "string") {

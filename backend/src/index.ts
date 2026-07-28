@@ -11,8 +11,10 @@ import  express from 'express';
 import cors from 'cors';
 import balanceRoutes from './routes/balance.js';
 import orderRoutes from './routes/order.js'
+import publicRoutes from './routes/public.js'
 import { dbPool } from './config/db.js';
 import { engine } from './engine/orderbook.js';
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +25,7 @@ app.use(express.json()); //parses incoming JSON payload
 //Mounting application routes
 app.use('/api/balances',balanceRoutes);
 app.use('/api/orders',orderRoutes);
+app.use('/api/public',publicRoutes)
 
 //Health check route
 app.get('/health',(req,res)  => {
